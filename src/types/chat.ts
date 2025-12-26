@@ -22,12 +22,24 @@ export interface TypingState {
   modelName: string;
 }
 
+export interface SavedConversation {
+  id: string;
+  name: string;
+  messages: Message[];
+  activeModels: Model[];
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface ChatState {
   messages: Message[];
   activeModels: Model[];
   availableModels: Model[];
   typingModels: TypingState[];
   contextWindowSize: number;
+  savedConversations: SavedConversation[];
+  currentConversationId: string | null;
+  isPaused: boolean;
 
   addMessage: (message: Omit<Message, "id" | "timestamp">) => string;
   updateMessage: (id: string, content: string) => void;
@@ -37,4 +49,12 @@ export interface ChatState {
   setContextWindowSize: (size: number) => void;
   clearChat: () => void;
   initializeModels: (models: Model[]) => void;
+
+  saveConversation: (name?: string) => string;
+  loadConversation: (id: string) => void;
+  deleteConversation: (id: string) => void;
+  renameConversation: (id: string, name: string) => void;
+  loadSavedConversations: () => void;
+  newConversation: () => void;
+  togglePause: () => void;
 }

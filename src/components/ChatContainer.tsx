@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useCallback } from "react";
 import { useChatStore } from "@/store/chatStore";
 import {
   conversationEngine,
@@ -12,6 +12,7 @@ import { MessageList } from "./MessageList";
 import { ChatInput } from "./ChatInput";
 import { ModelSelector } from "./ModelSelector";
 import { ActiveModels } from "./ActiveModels";
+import { SavedConversations } from "./SavedConversations";
 import { Message } from "@/types/chat";
 
 export function ChatContainer() {
@@ -24,8 +25,48 @@ export function ChatContainer() {
   const contextWindowSize = useChatStore((state) => state.contextWindowSize);
   const clearChat = useChatStore((state) => state.clearChat);
   const messages = useChatStore((state) => state.messages);
+  const saveConversation = useChatStore((state) => state.saveConversation);
+  const newConversation = useChatStore((state) => state.newConversation);
+  const isPaused = useChatStore((state) => state.isPaused);
+  const togglePause = useChatStore((state) => state.togglePause);
 
   const isGenerating = typingModels.length > 0 || messages.some((m) => m.isStreaming);
+
+  const handleDownloadCurrent = () => {
+    if (messages.length === 0) return;
+
+    const state = useChatStore.getState();
+    const savedChat = state.savedConversations.find(
+      (c) => c.id === state.currentConversationId
+    );
+
+    // Get chat name from saved chat or first message
+    const chatName =
+      savedChat?.name ||
+      messages[0]?.content.slice(0, 50) ||
+      `Chat ${new Date().toLocaleDateString()}`;
+
+    const content = messages
+      .map((m) => {
+        const sender = m.role === "user" ? "User" : m.modelName || "Assistant";
+        return `[${sender}]: ${m.content}`;
+      })
+      .join("\n\n");
+
+    // Clean filename - keep letters (including cyrillic), numbers, spaces
+    const cleanName = chatName
+      .replace(/[^\p{L}\p{N}\s]/gu, "")
+      .trim()
+      .slice(0, 50) || "chat";
+
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${cleanName}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   // Stop all generation
   const handleStop = useCallback(() => {
@@ -110,7 +151,22 @@ export function ChatContainer() {
   // Set up conversation engine handler
   useEffect(() => {
     conversationEngine.setResponseHandler(triggerModelResponse);
+    conversationEngine.setPauseChecker(() => useChatStore.getState().isPaused);
   }, [triggerModelResponse]);
+
+  // Auto-save every 30 seconds if there are messages
+  useEffect(() => {
+    if (messages.length === 0) return;
+
+    const interval = setInterval(() => {
+      const state = useChatStore.getState();
+      if (state.messages.length > 0) {
+        state.saveConversation();
+      }
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [messages.length > 0]);
 
   // Process which models should respond
   const processModelResponses = useCallback(
@@ -159,15 +215,15 @@ export function ChatContainer() {
 
   return (
     <div className="h-screen flex">
-      {/* Sidebar */}
-      <div className="w-72 bg-surface border-r border-border flex flex-col">
+      {/* Left Sidebar - Models */}
+      <div className="w-64 bg-surface border-r border-border flex flex-col">
         <div className="p-4 border-b border-border">
           <h1 className="text-lg font-bold text-primary">AI Group Chat</h1>
         </div>
 
         <div className="p-4 border-b border-border">
           <h2 className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">
-            In This Chat
+            Active Models
           </h2>
           <ActiveModels />
         </div>
@@ -176,15 +232,62 @@ export function ChatContainer() {
           <ModelSelector />
         </div>
 
-        <div className="p-4 border-t border-border">
+        <div className="p-3 border-t border-border space-y-2">
+          {/* Pause/Resume button */}
+          <button
+            onClick={togglePause}
+            className={`w-full px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2 ${
+              isPaused
+                ? "bg-green-500/20 text-green-400 hover:bg-green-500/30"
+                : "bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30"
+            }`}
+          >
+            {isPaused ? (
+              <>
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M8 5v14l11-7z" />
+                </svg>
+                Resume
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+                </svg>
+                Pause
+              </>
+            )}
+          </button>
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                saveConversation();
+              }}
+              disabled={messages.length === 0}
+              className="flex-1 px-3 py-2 text-sm bg-primary/20 text-primary hover:bg-primary/30 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
+            >
+              Save
+            </button>
+            <button
+              onClick={handleDownloadCurrent}
+              disabled={messages.length === 0}
+              className="px-3 py-2 text-sm text-muted hover:text-foreground hover:bg-surface-light disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors"
+              title="Download"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+            </button>
+          </div>
           <button
             onClick={() => {
-              clearChat();
+              newConversation();
               conversationEngine.reset();
             }}
             className="w-full px-4 py-2 text-sm text-muted hover:text-foreground hover:bg-surface-light rounded-lg transition-colors"
           >
-            Clear Chat
+            New Chat
           </button>
         </div>
       </div>
@@ -198,6 +301,16 @@ export function ChatContainer() {
           disabled={activeModels.length === 0}
           isGenerating={isGenerating}
         />
+      </div>
+
+      {/* Right Sidebar - Saved Conversations */}
+      <div className="w-64 bg-surface border-l border-border flex flex-col">
+        <div className="p-4 border-b border-border">
+          <h2 className="text-sm font-semibold text-foreground">Saved Chats</h2>
+        </div>
+        <div className="flex-1 overflow-y-auto p-3">
+          <SavedConversations />
+        </div>
       </div>
     </div>
   );

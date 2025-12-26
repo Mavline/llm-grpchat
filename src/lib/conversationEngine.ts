@@ -10,12 +10,22 @@ export class ConversationEngine {
   private cooldowns: Map<string, number> = new Map();
   private responseQueue: Array<{ modelId: string; priority: number }> = [];
   private pendingModels: Set<string> = new Set(); // Track models waiting to respond
-  private maxConcurrent = 1;
+  private maxConcurrent = 3; // Allow multiple models to respond simultaneously
   private currentlyResponding = 0;
   private onTriggerResponse?: (modelId: string) => void;
+  private messageCountSinceResponse: Map<string, number> = new Map(); // Track silence
+  private isPausedFn?: () => boolean;
 
   setResponseHandler(handler: (modelId: string) => void) {
     this.onTriggerResponse = handler;
+  }
+
+  setPauseChecker(fn: () => boolean) {
+    this.isPausedFn = fn;
+  }
+
+  isPaused(): boolean {
+    return this.isPausedFn?.() ?? false;
   }
 
   analyzeForResponse(
@@ -24,13 +34,17 @@ export class ConversationEngine {
     latestMessage: Message,
     activeModels: Model[]
   ): ResponseDecision {
-    // Don't respond to own messages
-    if (latestMessage.modelId === model.id) {
+    // Don't respond to own messages or system messages
+    if (latestMessage.modelId === model.id || latestMessage.modelId === "system") {
       return { shouldRespond: false, delay: 0, priority: 0 };
     }
 
     let priority = 0;
     let shouldRespond = false;
+
+    // Track how many messages since this model responded
+    const silenceCount = this.messageCountSinceResponse.get(model.id) || 0;
+    this.messageCountSinceResponse.set(model.id, silenceCount + 1);
 
     // Highest priority: @mentioned - BYPASSES COOLDOWN
     const mentionPattern = new RegExp(`@${model.shortName.toLowerCase()}\\b`, "i");
@@ -41,36 +55,49 @@ export class ConversationEngine {
       priority = 100;
     }
 
-    // Check cooldown (10 seconds) - but @mentions bypass this
+    // Check cooldown (3 seconds) - but @mentions bypass this
     const lastResponse = this.cooldowns.get(model.id) || 0;
-    const isOnCooldown = Date.now() - lastResponse < 10000;
+    const isOnCooldown = Date.now() - lastResponse < 3000;
 
     if (isOnCooldown && !isMentioned) {
       return { shouldRespond: false, delay: 0, priority: 0 };
     }
 
-    // High priority: User message
+    // High priority: User message (when user joins the conversation)
     if (!shouldRespond && latestMessage.role === "user") {
       shouldRespond = true;
       priority = 80;
     }
 
-    // Medium priority: Question asked (and not already responding to mention)
+    // High priority: Question from anyone (drives dialogue)
     if (!shouldRespond && latestMessage.content.includes("?")) {
       shouldRespond = true;
-      priority = 60;
+      priority = 70;
     }
 
-    // Low priority: Random chance (15%)
-    if (!shouldRespond && Math.random() < 0.15) {
+    // Medium priority: Continue the dialogue - respond to other AI messages
+    // Each model has a chance to engage with any message
+    if (!shouldRespond && latestMessage.role === "assistant") {
+      // Higher chance to respond if fewer active models
+      const engageChance = activeModels.length <= 2 ? 0.7 : 0.5;
+      if (Math.random() < engageChance) {
+        shouldRespond = true;
+        priority = 50;
+      }
+    }
+
+    // Anti-silence: If model has been quiet for 2+ messages, force response
+    if (!shouldRespond && silenceCount >= 2) {
       shouldRespond = true;
-      priority = 20;
+      priority = 40;
     }
 
-    // Calculate delay based on message length (simulate reading)
-    const readingTime = Math.min(latestMessage.content.length * 15, 2000);
-    const baseDelay = 1500 + Math.random() * 2000;
-    const delay = baseDelay + readingTime;
+    // Calculate delay - stagger responses naturally
+    const modelIndex = activeModels.findIndex(m => m.id === model.id);
+    const baseDelay = 800 + (modelIndex * 600);
+    const randomDelay = Math.random() * 2000;
+    const readingTime = Math.min(latestMessage.content.length * 8, 1200);
+    const delay = baseDelay + randomDelay + readingTime;
 
     return { shouldRespond, delay, priority };
   }
@@ -85,6 +112,14 @@ export class ConversationEngine {
     setTimeout(() => {
       // Double-check still pending (might have been cleared by stop)
       if (!this.pendingModels.has(modelId)) {
+        return;
+      }
+
+      // Check if paused - keep in pending but don't trigger
+      if (this.isPaused()) {
+        // Re-queue with shorter delay to check again
+        this.pendingModels.delete(modelId);
+        this.queueResponse(modelId, 1000, priority);
         return;
       }
 
@@ -108,6 +143,7 @@ export class ConversationEngine {
     this.cooldowns.set(modelId, Date.now());
     this.currentlyResponding--;
     this.pendingModels.delete(modelId);
+    this.messageCountSinceResponse.set(modelId, 0); // Reset silence counter
 
     if (this.responseQueue.length > 0) {
       const next = this.responseQueue.shift()!;
@@ -130,6 +166,7 @@ export class ConversationEngine {
     this.responseQueue = [];
     this.pendingModels.clear();
     this.currentlyResponding = 0;
+    this.messageCountSinceResponse.clear();
   }
 }
 

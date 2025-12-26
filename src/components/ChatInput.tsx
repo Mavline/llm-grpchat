@@ -1,6 +1,9 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { useChatStore } from "@/store/chatStore";
+
+const DRAFTS_KEY = "ai-groupchat-drafts";
 
 interface Props {
   onSend: (message: string) => void;
@@ -9,16 +12,51 @@ interface Props {
   isGenerating?: boolean;
 }
 
+function getDrafts(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    return JSON.parse(localStorage.getItem(DRAFTS_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function saveDraft(chatId: string, text: string) {
+  const drafts = getDrafts();
+  if (text) {
+    drafts[chatId] = text;
+  } else {
+    delete drafts[chatId];
+  }
+  localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+}
+
 export function ChatInput({ onSend, onStop, disabled, isGenerating }: Props) {
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const currentConversationId = useChatStore((state) => state.currentConversationId);
 
+  // Use "new" as key for new unsaved chats
+  const chatKey = currentConversationId || "new";
+
+  // Load draft when chat changes
+  useEffect(() => {
+    const drafts = getDrafts();
+    setInput(drafts[chatKey] || "");
+  }, [chatKey]);
+
+  // Save draft on change
+  useEffect(() => {
+    saveDraft(chatKey, input);
+  }, [input, chatKey]);
+
+  // Auto-resize textarea (up to 300px)
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
       textareaRef.current.style.height = `${Math.min(
         textareaRef.current.scrollHeight,
-        150
+        300
       )}px`;
     }
   }, [input]);
@@ -27,6 +65,7 @@ export function ChatInput({ onSend, onStop, disabled, isGenerating }: Props) {
     if (input.trim() && !disabled) {
       onSend(input.trim());
       setInput("");
+      saveDraft(chatKey, "");
     }
   };
 
