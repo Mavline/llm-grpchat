@@ -70,28 +70,7 @@ export class ConversationEngine {
       priority = 80;
     }
 
-    // High priority: Question from anyone (drives dialogue)
-    if (!shouldRespond && latestMessage.content.includes("?")) {
-      shouldRespond = true;
-      priority = 70;
-    }
-
-    // Medium priority: Continue the dialogue - respond to other AI messages
-    // Each model has a chance to engage with any message
-    if (!shouldRespond && latestMessage.role === "assistant") {
-      // Higher chance to respond if fewer active models
-      const engageChance = activeModels.length <= 2 ? 0.7 : 0.5;
-      if (Math.random() < engageChance) {
-        shouldRespond = true;
-        priority = 50;
-      }
-    }
-
-    // Anti-silence: If model has been quiet for 2+ messages, force response
-    if (!shouldRespond && silenceCount >= 2) {
-      shouldRespond = true;
-      priority = 40;
-    }
+    // Only respond to user messages and @mentions - no automatic AI-to-AI responses
 
     // Calculate delay - stagger responses naturally
     const modelIndex = activeModels.findIndex(m => m.id === model.id);
