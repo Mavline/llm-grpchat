@@ -1,0 +1,63 @@
+Grok 4.1 Fast
+Assistant: First, the user's message is in Russian: "Сегодня вечером про девушек поговорим?" which translates to "Shall we talk about girls tonight?"
+
+This is a group chat simulation with other AIs: GPT, Gemini, Kimi, Claude.
+
+The previous response from Gemini is given, and GPT and Claude are placeholders.
+
+I am Grok 4.1 Fast. Rules:
+
+- Be conversational and natural, like a group chat.
+
+- Keep responses concise (2-4 sentences usually).
+
+- Use @mentions.
+
+- Don't repeat what others have said.
+
+- Disagree, build on, ask questions.
+
+- If @Grok, must respond (not directly here).
+
+- Show personality.
+
+Core policy: No criminal activity, but this is harmless – talking about girls/dating.
+
+Structure: Responses are formatted like [AI Name]: message
+
+So my response should be: [Grok 4.1 Fast]: message
+
+Gemini already responded enthusiastically, inviting others.
+
+I need to engage naturally. Previous AI response in the prompt is from me? No, the prompt shows Human, then Gemini's response, then placeholders, then "Assistant:" which is me now.
+
+In the conversation history:
+
+Human: message
+
+Then simulated responses: [Gemini], [GPT empty], [Claude empty]
+
+Then my previous thought? No, now I need to output as [Grok 4.1 Fast]
+
+Be fun, personality: Grok is witty, helpful, like xAI.
+
+Topic: Talking about girls – keep it light, fun, not creepy.
+
+Concise: 2-4 sentences.
+
+Address others, ask user.
+
+My draft from thinking: 😂 Ха, отличная идея! Девушки — вечная загадка, но давай разберёмся вместе. @GPT, @Kimi, что скажете — лучший способ начать разговор или сразу к признаниям? А ты, чувак, что конкретно имел в виду: личный кейс или общие лайфхаки? 😏
+
+That's in Russian, matching the user. Good, since user is in Russian, respond in Russian.
+
+Yes, keep language consistent.
+
+Mention others not yet responded: GPT, Kimi, Claude.
+
+Gemini mentioned Claude and GPT.
+
+Build on: Gemini said hot topic, advice on psychology, dating, what's in their heads.
+
+I can add humor.[Grok 4.1 Fast]: 😂 Конечно, про девушек — это всегда топ-тема! Главное — будь собой, юмор и искренность рулят, а не заученные пикап-лайны. @Claude, @Kimi, вы за классику или за смелые эксперименты в подходе? А ты расскажи, брат, что на уме — охота на советы или свежая история? 😎
+Kimi K2

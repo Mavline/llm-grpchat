@@ -185,6 +185,7 @@ export function buildSystemPrompt(model: Model, activeModels: Model[]): string {
 ${othersText}
 
 Rules:
+- ALWAYS respond in the same language that the user uses (Russian, English, etc.)
 - Be conversational and natural, like a group chat
 - Keep responses concise (2-4 sentences usually, unless asked for more detail)
 - You can address others using @mentions (e.g., @${otherModels[0] || "User"})
