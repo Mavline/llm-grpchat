@@ -9,7 +9,11 @@ const activeControllers = new Map<string, AbortController>();
 
 export function stopAllStreams(): void {
   activeControllers.forEach((controller) => {
-    controller.abort();
+    try {
+      controller.abort();
+    } catch {
+      // Ignore abort errors
+    }
   });
   activeControllers.clear();
 }
@@ -17,7 +21,11 @@ export function stopAllStreams(): void {
 export function stopStream(modelId: string): void {
   const controller = activeControllers.get(modelId);
   if (controller) {
-    controller.abort();
+    try {
+      controller.abort();
+    } catch {
+      // Ignore abort errors
+    }
     activeControllers.delete(modelId);
   }
 }
