@@ -24,7 +24,7 @@ export function MessageBubble({ message }: Props) {
 
     const mentionRegex = /@(\w+)/g;
     let lastIndex = 0;
-    let match;
+    let match: RegExpExecArray | null;
 
     while ((match = mentionRegex.exec(message.content)) !== null) {
       // Add text before the mention
@@ -34,7 +34,7 @@ export function MessageBubble({ message }: Props) {
 
       // Check if this mention corresponds to a model
       const mentionedModel = allModels.find(
-        (m) => m.shortName.toLowerCase() === match[1].toLowerCase()
+        (m) => m.shortName.toLowerCase() === match![1].toLowerCase()
       );
 
       if (mentionedModel) {

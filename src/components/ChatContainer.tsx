@@ -32,6 +32,25 @@ export function ChatContainer() {
 
   const isGenerating = typingModels.length > 0 || messages.some((m) => m.isStreaming);
 
+  // Stop all generation and reset pause
+  const handleStop = useCallback(() => {
+    stopAllStreams();
+    conversationEngine.reset();
+
+    // Get fresh state from store
+    const state = useChatStore.getState();
+    state.typingModels.forEach((t) => setTyping(t.modelId, t.modelName, false));
+    state.messages.forEach((m) => {
+      if (m.isStreaming) {
+        completeMessage(m.id);
+      }
+    });
+    // Reset pause state when stopping
+    if (state.isPaused) {
+      togglePause();
+    }
+  }, [setTyping, completeMessage, togglePause]);
+
   const handleDownloadCurrent = () => {
     if (messages.length === 0) return;
 
@@ -68,19 +87,6 @@ export function ChatContainer() {
     URL.revokeObjectURL(url);
   };
 
-  // Stop all generation
-  const handleStop = useCallback(() => {
-    stopAllStreams();
-    conversationEngine.reset();
-    // Clear all typing indicators
-    typingModels.forEach((t) => setTyping(t.modelId, t.modelName, false));
-    // Mark all streaming messages as complete
-    messages.forEach((m) => {
-      if (m.isStreaming) {
-        completeMessage(m.id);
-      }
-    });
-  }, [typingModels, messages, setTyping, completeMessage]);
 
   // Handle model response
   const triggerModelResponse = useCallback(
@@ -233,32 +239,6 @@ export function ChatContainer() {
         </div>
 
         <div className="p-3 border-t border-border space-y-2">
-          {/* Pause/Resume button */}
-          <button
-            onClick={togglePause}
-            className={`w-full px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2 ${
-              isPaused
-                ? "bg-green-500/20 text-green-400 hover:bg-green-500/30"
-                : "bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30"
-            }`}
-          >
-            {isPaused ? (
-              <>
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
-                Resume
-              </>
-            ) : (
-              <>
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-                </svg>
-                Pause
-              </>
-            )}
-          </button>
-
           <div className="flex gap-2">
             <button
               onClick={() => {

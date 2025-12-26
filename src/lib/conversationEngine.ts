@@ -10,7 +10,8 @@ export class ConversationEngine {
   private cooldowns: Map<string, number> = new Map();
   private responseQueue: Array<{ modelId: string; priority: number }> = [];
   private pendingModels: Set<string> = new Set(); // Track models waiting to respond
-  private maxConcurrent = 3; // Allow multiple models to respond simultaneously
+  private streamingModels: Set<string> = new Set(); // Track models currently streaming
+  private maxConcurrent = 1; // Only one model responds at a time - queue the rest
   private currentlyResponding = 0;
   private onTriggerResponse?: (modelId: string) => void;
   private messageCountSinceResponse: Map<string, number> = new Map(); // Track silence
@@ -103,8 +104,8 @@ export class ConversationEngine {
   }
 
   queueResponse(modelId: string, delay: number, priority: number): void {
-    // Don't queue if already queued or currently responding
-    if (this.pendingModels.has(modelId)) {
+    // Don't queue if already queued, pending, or currently streaming
+    if (this.pendingModels.has(modelId) || this.streamingModels.has(modelId)) {
       return;
     }
     this.pendingModels.add(modelId);
@@ -115,37 +116,55 @@ export class ConversationEngine {
         return;
       }
 
-      // Check if paused - keep in pending but don't trigger
+      // Check if paused - wait and check again (don't remove from pending)
       if (this.isPaused()) {
-        // Re-queue with shorter delay to check again
-        this.pendingModels.delete(modelId);
-        this.queueResponse(modelId, 1000, priority);
+        setTimeout(() => {
+          if (this.pendingModels.has(modelId) && !this.isPaused()) {
+            this.tryTrigger(modelId, priority);
+          } else if (this.pendingModels.has(modelId)) {
+            // Still paused, check again later
+            this.queueResponse(modelId, 500, priority);
+          }
+        }, 500);
+        this.pendingModels.delete(modelId); // Remove so re-queue works
         return;
       }
 
-      if (this.currentlyResponding < this.maxConcurrent) {
-        this.triggerResponse(modelId);
-      } else {
-        // Insert in priority order
-        const insertIndex = this.responseQueue.findIndex(
-          (item) => item.priority < priority
-        );
-        if (insertIndex === -1) {
-          this.responseQueue.push({ modelId, priority });
-        } else {
-          this.responseQueue.splice(insertIndex, 0, { modelId, priority });
-        }
-      }
+      this.tryTrigger(modelId, priority);
     }, delay);
+  }
+
+  private tryTrigger(modelId: string, priority: number): void {
+    // Don't trigger if model is already streaming
+    if (this.streamingModels.has(modelId)) {
+      this.pendingModels.delete(modelId);
+      return;
+    }
+
+    if (this.currentlyResponding < this.maxConcurrent) {
+      this.triggerResponse(modelId);
+    } else {
+      // Insert in priority order
+      const insertIndex = this.responseQueue.findIndex(
+        (item) => item.priority < priority
+      );
+      if (insertIndex === -1) {
+        this.responseQueue.push({ modelId, priority });
+      } else {
+        this.responseQueue.splice(insertIndex, 0, { modelId, priority });
+      }
+    }
   }
 
   completeResponse(modelId: string): void {
     this.cooldowns.set(modelId, Date.now());
     this.currentlyResponding--;
     this.pendingModels.delete(modelId);
+    this.streamingModels.delete(modelId);
     this.messageCountSinceResponse.set(modelId, 0); // Reset silence counter
 
-    if (this.responseQueue.length > 0) {
+    // Trigger next in queue if not paused
+    if (this.responseQueue.length > 0 && !this.isPaused()) {
       const next = this.responseQueue.shift()!;
       this.triggerResponse(next.modelId);
     }
@@ -153,6 +172,7 @@ export class ConversationEngine {
 
   private triggerResponse(modelId: string): void {
     this.currentlyResponding++;
+    this.streamingModels.add(modelId);
     this.onTriggerResponse?.(modelId);
   }
 
@@ -165,6 +185,7 @@ export class ConversationEngine {
     this.cooldowns.clear();
     this.responseQueue = [];
     this.pendingModels.clear();
+    this.streamingModels.clear();
     this.currentlyResponding = 0;
     this.messageCountSinceResponse.clear();
   }

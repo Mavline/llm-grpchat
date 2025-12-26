@@ -10,9 +10,9 @@ const activeControllers = new Map<string, AbortController>();
 export function stopAllStreams(): void {
   activeControllers.forEach((controller) => {
     try {
-      controller.abort();
+      controller.abort("User stopped generation");
     } catch {
-      // Ignore abort errors
+      // ignore abort errors
     }
   });
   activeControllers.clear();
@@ -22,9 +22,9 @@ export function stopStream(modelId: string): void {
   const controller = activeControllers.get(modelId);
   if (controller) {
     try {
-      controller.abort();
+      controller.abort("Model disabled");
     } catch {
-      // Ignore abort errors
+      // ignore abort errors
     }
     activeControllers.delete(modelId);
   }
@@ -54,7 +54,16 @@ export async function streamModelResponse(
     });
 
     if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
+      let errorMessage = `API error: ${response.status}`;
+      try {
+        const errorData = await response.json();
+        if (errorData.error) {
+          errorMessage = errorData.error;
+        }
+      } catch {
+        // ignore parse error
+      }
+      throw new Error(errorMessage);
     }
 
     const reader = response.body?.getReader();
@@ -107,10 +116,14 @@ export async function streamModelResponse(
     onComplete();
   } catch (error) {
     activeControllers.delete(modelId);
-    if ((error as Error).name === "AbortError") {
+    const err = error as Error;
+    // Check for abort - can be AbortError or error with abort message
+    if (err.name === "AbortError" ||
+        String(err).toLowerCase().includes("abort") ||
+        String(err).includes("stopped")) {
       onComplete(); // Treat abort as completion (message stays as-is)
       return;
     }
-    onError(error as Error);
+    onError(err);
   }
 }

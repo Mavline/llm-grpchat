@@ -35,6 +35,8 @@ export function ChatInput({ onSend, onStop, disabled, isGenerating }: Props) {
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const currentConversationId = useChatStore((state) => state.currentConversationId);
+  const isPaused = useChatStore((state) => state.isPaused);
+  const togglePause = useChatStore((state) => state.togglePause);
 
   // Use "new" as key for new unsaved chats
   const chatKey = currentConversationId || "new";
@@ -89,29 +91,48 @@ export function ChatInput({ onSend, onStop, disabled, isGenerating }: Props) {
           rows={1}
           className="flex-1 bg-surface border border-border rounded-lg px-4 py-3 text-sm resize-none focus:outline-none focus:border-primary/50 disabled:opacity-50 placeholder:text-muted"
         />
-        {isGenerating ? (
-          <button
-            onClick={onStop}
-            className="px-5 py-3 bg-primary hover:bg-primary-hover text-white rounded-lg font-medium text-sm transition-colors flex items-center gap-2"
-          >
-            <svg
-              className="w-4 h-4"
-              fill="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <rect x="6" y="6" width="12" height="12" rx="1" />
+        {/* Stop */}
+        <button
+          onClick={onStop}
+          disabled={!isGenerating}
+          className="p-3 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          title="Stop"
+        >
+          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+            <rect x="6" y="6" width="12" height="12" rx="1" />
+          </svg>
+        </button>
+        {/* Pause/Resume */}
+        <button
+          onClick={togglePause}
+          className={`p-3 rounded-lg transition-colors ${
+            isPaused
+              ? "bg-green-500 hover:bg-green-600 text-white"
+              : "bg-yellow-500 hover:bg-yellow-600 text-white"
+          }`}
+          title={isPaused ? "Resume" : "Pause"}
+        >
+          {isPaused ? (
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M8 5v14l11-7z" />
             </svg>
-            Stop
-          </button>
-        ) : (
-          <button
-            onClick={handleSubmit}
-            disabled={!input.trim() || disabled}
-            className="px-5 py-3 bg-primary hover:bg-primary-hover text-white rounded-lg font-medium text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Send
-          </button>
-        )}
+          ) : (
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+            </svg>
+          )}
+        </button>
+        {/* Send */}
+        <button
+          onClick={handleSubmit}
+          disabled={!input.trim() || disabled}
+          className="p-3 bg-primary hover:bg-primary-hover text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Send"
+        >
+          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+          </svg>
+        </button>
       </div>
     </div>
   );

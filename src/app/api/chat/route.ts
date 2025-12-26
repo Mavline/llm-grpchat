@@ -1,18 +1,31 @@
 import { NextRequest } from "next/server";
 import OpenAI from "openai";
 
-const openai = new OpenAI({
-  baseURL: "https://openrouter.ai/api/v1",
-  apiKey: process.env.OPENAI_API_KEY!,
-  defaultHeaders: {
-    "HTTP-Referer": "http://localhost:3000",
-    "X-Title": "AI Group Chat",
-  },
-});
+function getOpenAI() {
+  // Support multiple key names
+  const apiKey = process.env.OPENROUTER_API_KEY
+    || process.env.OPENROUTER_KEY
+    || process.env.OR_API_KEY
+    || process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error("OPENROUTER_API_KEY not configured");
+  }
+  return new OpenAI({
+    baseURL: "https://openrouter.ai/api/v1",
+    apiKey,
+    defaultHeaders: {
+      "HTTP-Referer": process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
+      "X-Title": "AI Group Chat",
+    },
+  });
+}
 
 export async function POST(req: NextRequest) {
   try {
+    const openai = getOpenAI();
     const { messages, model } = await req.json();
+
+    console.log(`[API] Request for model: ${model}`);
 
     const stream = await openai.chat.completions.create({
       model: model,
@@ -53,10 +66,29 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("API Error:", error);
+    const err = error as Error & { status?: number; message?: string };
+    console.error("[API] Error:", err.message || error);
+
+    let message = "Failed to process request";
+    let status = 500;
+
+    if (err.message?.includes("API_KEY")) {
+      message = "API key not configured. Set OPENROUTER_API_KEY in environment.";
+      status = 503;
+    } else if (err.status === 401) {
+      message = "Invalid API key";
+      status = 401;
+    } else if (err.status === 429) {
+      message = "Rate limit exceeded. Try again later.";
+      status = 429;
+    } else if (err.status === 400) {
+      message = "Invalid request to model";
+      status = 400;
+    }
+
     return new Response(
-      JSON.stringify({ error: "Failed to process request" }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
+      JSON.stringify({ error: message }),
+      { status, headers: { "Content-Type": "application/json" } }
     );
   }
 }
