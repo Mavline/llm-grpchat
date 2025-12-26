@@ -158,6 +158,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         activeModels: conversation.activeModels,
         currentConversationId: id,
         typingModels: [],
+        isPaused: true,
       });
     }
   },
