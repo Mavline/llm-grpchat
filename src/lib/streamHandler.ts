@@ -10,7 +10,7 @@ const activeControllers = new Map<string, AbortController>();
 export function stopAllStreams(): void {
   activeControllers.forEach((controller) => {
     try {
-      controller.abort("User stopped generation");
+      controller.abort();
     } catch {
       // ignore abort errors
     }
@@ -22,7 +22,7 @@ export function stopStream(modelId: string): void {
   const controller = activeControllers.get(modelId);
   if (controller) {
     try {
-      controller.abort("Model disabled");
+      controller.abort();
     } catch {
       // ignore abort errors
     }
