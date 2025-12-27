@@ -280,9 +280,13 @@ export function ChatContainer() {
   const handleResume = useCallback(() => {
     const state = useChatStore.getState();
     if (state.messages.length > 0 && state.activeModels.length > 0) {
-      const lastMessage = state.messages[state.messages.length - 1];
-      if (lastMessage && !lastMessage.isStreaming) {
-        processModelResponses(lastMessage);
+      // Find last non-system message to trigger response
+      const lastNonSystemMessage = [...state.messages]
+        .reverse()
+        .find(m => m.modelId !== "system" && !m.isStreaming);
+
+      if (lastNonSystemMessage) {
+        processModelResponses(lastNonSystemMessage);
       }
     }
   }, [processModelResponses]);
