@@ -45,6 +45,15 @@ export async function streamModelResponse(
   const controller = new AbortController();
   activeControllers.set(modelId, controller);
 
+  // Timeout protection - abort if no response in 10 seconds
+  const timeout = setTimeout(() => {
+    if (activeControllers.has(modelId)) {
+      controller.abort("Request timeout");
+    }
+  }, 10000);
+
+  let hasContent = false;
+
   try {
     const response = await fetch("/api/chat", {
       method: "POST",
@@ -93,13 +102,19 @@ export async function streamModelResponse(
         if (line.startsWith("data: ")) {
           const data = line.slice(6).trim();
           if (data === "[DONE]") {
+            clearTimeout(timeout);
             activeControllers.delete(modelId);
+            // If no content was received, send placeholder
+            if (!hasContent) {
+              onToken("[Модель не ответила]");
+            }
             onComplete();
             return;
           }
           try {
             const parsed = JSON.parse(data);
             if (parsed.content) {
+              hasContent = true;
               onToken(parsed.content);
             }
             if (parsed.error) {
@@ -112,15 +127,26 @@ export async function streamModelResponse(
       }
     }
 
+    clearTimeout(timeout);
     activeControllers.delete(modelId);
+    // If no content was received, send placeholder
+    if (!hasContent) {
+      onToken("[Модель не ответила]");
+    }
     onComplete();
   } catch (error) {
+    clearTimeout(timeout);
     activeControllers.delete(modelId);
     const err = error as Error;
     // Check for abort - can be AbortError or error with abort message
     if (err.name === "AbortError" ||
         String(err).toLowerCase().includes("abort") ||
-        String(err).includes("stopped")) {
+        String(err).includes("stopped") ||
+        String(err).includes("timeout")) {
+      // If timed out with no content, show error
+      if (!hasContent && String(err).includes("timeout")) {
+        onToken("[Таймаут запроса]");
+      }
       onComplete(); // Treat abort as completion (message stays as-is)
       return;
     }

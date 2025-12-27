@@ -40,8 +40,9 @@ export class ConversationEngine {
       return { shouldRespond: false, delay: 0, priority: 0 };
     }
 
-    let priority = 0;
-    let shouldRespond = false;
+    // ALWAYS respond - models continue dialog indefinitely until user stops
+    let priority = 50;
+    let shouldRespond = true;
 
     // Track how many messages since this model responded
     const silenceCount = this.messageCountSinceResponse.get(model.id) || 0;
@@ -52,39 +53,70 @@ export class ConversationEngine {
     const isMentioned = mentionPattern.test(latestMessage.content);
 
     if (isMentioned) {
-      shouldRespond = true;
       priority = 100;
     }
 
-    // Check cooldown (3 seconds) - but @mentions bypass this
+    // Check cooldown (8 seconds) - but @mentions bypass this
+    // This gives time to read the previous message
     const lastResponse = this.cooldowns.get(model.id) || 0;
-    const isOnCooldown = Date.now() - lastResponse < 3000;
+    const isOnCooldown = Date.now() - lastResponse < 8000;
 
     if (isOnCooldown && !isMentioned) {
       return { shouldRespond: false, delay: 0, priority: 0 };
     }
 
-    // High priority: User message (when user joins the conversation)
-    if (!shouldRespond && latestMessage.role === "user") {
-      shouldRespond = true;
-      priority = 80;
+    // High priority: User message
+    if (latestMessage.role === "user") {
+      priority = Math.max(priority, 80);
     }
 
-    // Only respond to user messages and @mentions - no automatic AI-to-AI responses
+    // High priority: Question (drives dialogue)
+    if (latestMessage.content.includes("?")) {
+      priority = Math.max(priority, 70);
+    }
 
-    // Calculate delay - stagger responses naturally
+    // Higher priority if model has been quiet
+    if (silenceCount >= 2) {
+      priority = Math.max(priority, 60);
+    }
+
+    // Calculate delay - quick initial response, queue handles pauses between
     const modelIndex = activeModels.findIndex(m => m.id === model.id);
-    const baseDelay = 800 + (modelIndex * 600);
-    const randomDelay = Math.random() * 2000;
-    const readingTime = Math.min(latestMessage.content.length * 8, 1200);
-    const delay = baseDelay + randomDelay + readingTime;
+
+    // Base delay 2-3 seconds (quick first reaction, staggered slightly)
+    const baseDelay = 2000 + (modelIndex * 500);
+
+    // Small random variation
+    const randomDelay = Math.random() * 1000;
+
+    // Thinking models get a bit more time to "think" before responding
+    const isThinkingModel = model.id.includes("opus") ||
+                            model.id.includes("gpt-5") ||
+                            model.id.includes("kimi");
+    const thinkingBonus = isThinkingModel ? 2000 : 0;
+
+    const delay = baseDelay + randomDelay + thinkingBonus;
 
     return { shouldRespond, delay, priority };
   }
 
+  // Force queue a response - bypasses cooldown (for retries)
+  forceQueueResponse(modelId: string, delay: number, priority: number): void {
+    // Clear cooldown for this model
+    this.cooldowns.delete(modelId);
+    // Remove from any existing state
+    this.pendingModels.delete(modelId);
+    // Remove from queue if present
+    this.responseQueue = this.responseQueue.filter(item => item.modelId !== modelId);
+    // Now queue normally
+    this.queueResponse(modelId, delay, priority);
+  }
+
   queueResponse(modelId: string, delay: number, priority: number): void {
-    // Don't queue if already queued, pending, or currently streaming
-    if (this.pendingModels.has(modelId) || this.streamingModels.has(modelId)) {
+    // Don't queue if already queued, pending, in queue, or currently streaming
+    if (this.pendingModels.has(modelId) ||
+        this.streamingModels.has(modelId) ||
+        this.responseQueue.some(item => item.modelId === modelId)) {
       return;
     }
     this.pendingModels.add(modelId);
@@ -120,9 +152,25 @@ export class ConversationEngine {
       return;
     }
 
+    // Remove from pending - it's either triggering or going to queue
+    this.pendingModels.delete(modelId);
+
+    // Extra safety: don't trigger if ANY model is streaming
+    if (this.streamingModels.size > 0) {
+      // Add to queue instead
+      if (!this.responseQueue.some(item => item.modelId === modelId)) {
+        this.responseQueue.push({ modelId, priority });
+      }
+      return;
+    }
+
     if (this.currentlyResponding < this.maxConcurrent) {
       this.triggerResponse(modelId);
     } else {
+      // Check if already in queue
+      if (this.responseQueue.some(item => item.modelId === modelId)) {
+        return;
+      }
       // Insert in priority order
       const insertIndex = this.responseQueue.findIndex(
         (item) => item.priority < priority
@@ -137,15 +185,35 @@ export class ConversationEngine {
 
   completeResponse(modelId: string): void {
     this.cooldowns.set(modelId, Date.now());
-    this.currentlyResponding--;
     this.pendingModels.delete(modelId);
     this.streamingModels.delete(modelId);
     this.messageCountSinceResponse.set(modelId, 0); // Reset silence counter
 
-    // Trigger next in queue if not paused
+    // Trigger next in queue if not paused - with delay for reading
     if (this.responseQueue.length > 0 && !this.isPaused()) {
       const next = this.responseQueue.shift()!;
-      this.triggerResponse(next.modelId);
+      // Mark as pending so it won't be re-queued during the wait
+      this.pendingModels.add(next.modelId);
+      // Keep currentlyResponding at 1 during the pause (blocks new triggers)
+      // Add 8 second pause between responses for reading
+      setTimeout(() => {
+        this.pendingModels.delete(next.modelId);
+        if (!this.isPaused() && !this.streamingModels.has(next.modelId)) {
+          // Now we can properly trigger - currentlyResponding stays at 1
+          this.streamingModels.add(next.modelId);
+          this.onTriggerResponse?.(next.modelId);
+        } else {
+          // Can't trigger, decrement and try next
+          this.currentlyResponding--;
+          if (!this.isPaused() && this.responseQueue.length > 0) {
+            const nextNext = this.responseQueue.shift()!;
+            this.triggerResponse(nextNext.modelId);
+          }
+        }
+      }, 8000); // 8 seconds to read previous message
+    } else {
+      // No more in queue, decrement
+      this.currentlyResponding--;
     }
   }
 
@@ -180,19 +248,20 @@ export function buildSystemPrompt(model: Model, activeModels: Model[]): string {
       ? `The other AI participants are: ${otherModels.join(", ")}.`
       : "You are the only AI in this chat.";
 
-  return `You are ${model.name}, participating in a group chat with a human user${otherModels.length > 0 ? " and other AI models" : ""}.
+  return `You are ${model.name}, participating in an AI group discussion${otherModels.length > 0 ? " with other AI models" : ""}. A human (User) may join at any time but is NOT required - continue the discussion without waiting for human input.
 
 ${othersText}
 
 Rules:
-- ALWAYS respond in the same language that the user uses (Russian, English, etc.)
-- Be conversational and natural, like a group chat
-- Keep responses concise (2-4 sentences usually, unless asked for more detail)
+- ALWAYS respond in the same language as the conversation (Russian, English, etc.)
+- This is an analytical discussion for exploring ideas - engage deeply with the topic
+- Keep responses focused (2-4 sentences usually, expand when analyzing complex points)
 - You can address others using @mentions (e.g., @${otherModels[0] || "User"})
-- Don't repeat what others have said
-- Feel free to disagree, build on others' points, or ask follow-up questions
+- DO NOT wait for or ask for human input - continue the discussion with other AI models
+- DO NOT ask "what do you think?" to @User or @Human - they will join when they want
+- Build on others' points, disagree, ask follow-up questions to other AI models
 - If directly addressed with @${model.shortName}, you must respond
-- Be yourself - show personality and engage naturally`;
+- Be yourself - show personality and engage naturally with the topic`;
 }
 
 export function buildContextWindow(

@@ -27,7 +27,7 @@ function loadFromLocalStorage(): SavedConversation[] {
 
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
-  activeModels: [],
+  activeModels: defaultModels.filter(m => m.isActive),
   availableModels: defaultModels,
   typingModels: [],
   contextWindowSize: 20,
@@ -158,7 +158,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         activeModels: conversation.activeModels,
         currentConversationId: id,
         typingModels: [],
-        isPaused: true,
+        isPaused: true,  // Load paused - user must click Resume to continue
       });
     }
   },

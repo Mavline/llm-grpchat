@@ -14,7 +14,7 @@ export const availableModels: Model[] = [
     shortName: "Kimi",
     provider: "moonshotai",
     color: modelColors[0],
-    isActive: false,
+    isActive: true,
   },
   {
     id: "google/gemini-3-flash-preview",
@@ -22,7 +22,7 @@ export const availableModels: Model[] = [
     shortName: "Gemini",
     provider: "google",
     color: modelColors[1],
-    isActive: false,
+    isActive: true,
   },
   {
     id: "anthropic/claude-opus-4.5",
@@ -30,7 +30,7 @@ export const availableModels: Model[] = [
     shortName: "Claude",
     provider: "anthropic",
     color: modelColors[2],
-    isActive: false,
+    isActive: true,
   },
   {
     id: "x-ai/grok-4.1-fast",
@@ -38,7 +38,7 @@ export const availableModels: Model[] = [
     shortName: "Grok",
     provider: "x-ai",
     color: modelColors[3],
-    isActive: false,
+    isActive: true,
   },
   {
     id: "openai/gpt-5.2",
@@ -46,6 +46,6 @@ export const availableModels: Model[] = [
     shortName: "GPT",
     provider: "openai",
     color: "#a855f7",
-    isActive: false,
+    isActive: true,
   },
 ];

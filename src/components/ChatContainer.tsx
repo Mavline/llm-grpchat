@@ -30,14 +30,11 @@ export function ChatContainer() {
   const isPaused = useChatStore((state) => state.isPaused);
   const togglePause = useChatStore((state) => state.togglePause);
 
-  const isGenerating = typingModels.length > 0 || messages.some((m) => m.isStreaming);
-
-  // Stop all generation and reset pause
+  // Stop dialog completely - save and reset
   const handleStop = useCallback(() => {
     stopAllStreams();
     conversationEngine.reset();
 
-    // Get fresh state from store
     const state = useChatStore.getState();
     state.typingModels.forEach((t) => setTyping(t.modelId, t.modelName, false));
     state.messages.forEach((m) => {
@@ -45,11 +42,13 @@ export function ChatContainer() {
         completeMessage(m.id);
       }
     });
-    // Reset pause state when stopping
-    if (state.isPaused) {
-      togglePause();
+
+    // Save and start new conversation
+    if (state.messages.length > 0) {
+      saveConversation();
     }
-  }, [setTyping, completeMessage, togglePause]);
+    newConversation();
+  }, [setTyping, completeMessage, saveConversation, newConversation]);
 
   const handleDownloadCurrent = () => {
     if (messages.length === 0) return;
@@ -88,9 +87,9 @@ export function ChatContainer() {
   };
 
 
-  // Handle model response
+  // Handle model response with retry logic
   const triggerModelResponse = useCallback(
-    async (modelId: string) => {
+    async (modelId: string, retryCount = 0) => {
       const state = useChatStore.getState();
       const model = state.activeModels.find((m) => m.id === modelId);
       if (!model) {
@@ -125,29 +124,87 @@ export function ChatContainer() {
       setTyping(modelId, model.name, false);
 
       let content = "";
+      let displayedContent = "";
+      let hasRealContent = false;
+      let tokenQueue: string[] = [];
+      let isProcessingQueue = false;
+
+      // Process token queue with typing delay
+      const processQueue = () => {
+        if (tokenQueue.length === 0) {
+          isProcessingQueue = false;
+          return;
+        }
+        isProcessingQueue = true;
+        const char = tokenQueue.shift()!;
+        displayedContent += char;
+        updateMessage(messageId, displayedContent);
+        // 30ms per character = readable typing speed
+        setTimeout(processQueue, 30);
+      };
+
       await streamModelResponse(modelId, apiMessages, {
         onToken: (token) => {
           content += token;
-          updateMessage(messageId, content);
+          // Check if it's real content (not error placeholder)
+          const isErrorToken = token.startsWith("[") &&
+            (token.includes("не ответила") || token.includes("Таймаут") || token.includes("Ошибка"));
+          if (!isErrorToken) {
+            hasRealContent = true;
+          }
+          // Add to queue character by character
+          for (const char of token) {
+            tokenQueue.push(char);
+          }
+          if (!isProcessingQueue) {
+            processQueue();
+          }
         },
         onComplete: () => {
-          completeMessage(messageId);
-          conversationEngine.completeResponse(modelId);
+          // Wait for typing queue to finish before completing
+          const waitForQueue = () => {
+            if (tokenQueue.length > 0 || isProcessingQueue) {
+              setTimeout(waitForQueue, 100);
+              return;
+            }
 
-          // After response, check if other models should respond
-          const latestState = useChatStore.getState();
-          const latestMessage = latestState.messages.find(
-            (m) => m.id === messageId
-          );
-          if (latestMessage) {
-            processModelResponses(latestMessage);
-          }
+            // Update with full content in case queue was interrupted
+            updateMessage(messageId, content);
+            completeMessage(messageId);
+            conversationEngine.completeResponse(modelId);
+
+            // If response was empty/error and we haven't retried too many times, retry
+            if (!hasRealContent && retryCount < 2) {
+              console.log(`[Retry] Model ${model.shortName} failed, retrying (attempt ${retryCount + 1})`);
+              setTimeout(() => {
+                conversationEngine.forceQueueResponse(modelId, 0, 90);
+              }, 2000);
+            }
+
+            // After response, check if other models should respond
+            const latestState = useChatStore.getState();
+            const latestMessage = latestState.messages.find(
+              (m) => m.id === messageId
+            );
+            if (latestMessage) {
+              processModelResponses(latestMessage);
+            }
+          };
+          waitForQueue();
         },
         onError: (error) => {
           console.error("Stream error:", error);
-          updateMessage(messageId, content || "[Error: Failed to get response]");
+          updateMessage(messageId, content || "[Ошибка: не удалось получить ответ]");
           completeMessage(messageId);
           conversationEngine.completeResponse(modelId);
+
+          // Retry on error
+          if (retryCount < 2) {
+            console.log(`[Retry] Model ${model.shortName} error, retrying (attempt ${retryCount + 1})`);
+            setTimeout(() => {
+              conversationEngine.forceQueueResponse(modelId, 0, 90);
+            }, 2000);
+          }
         },
       });
     },
@@ -159,6 +216,30 @@ export function ChatContainer() {
     conversationEngine.setResponseHandler(triggerModelResponse);
     conversationEngine.setPauseChecker(() => useChatStore.getState().isPaused);
   }, [triggerModelResponse]);
+
+  // Get currentConversationId for tracking conversation changes
+  const currentConversationId = useChatStore((state) => state.currentConversationId);
+
+  // Reset engine when conversation changes (prevents auto-triggering on load)
+  useEffect(() => {
+    conversationEngine.reset();
+  }, [currentConversationId]);
+
+  // When paused, STOP all current streams immediately
+  useEffect(() => {
+    if (isPaused) {
+      stopAllStreams();
+      conversationEngine.reset();
+      // Complete any streaming messages
+      const state = useChatStore.getState();
+      state.typingModels.forEach((t) => setTyping(t.modelId, t.modelName, false));
+      state.messages.forEach((m) => {
+        if (m.isStreaming) {
+          completeMessage(m.id);
+        }
+      });
+    }
+  }, [isPaused, setTyping, completeMessage]);
 
   // Auto-save every 30 seconds if there are messages
   useEffect(() => {
@@ -194,6 +275,17 @@ export function ChatContainer() {
     },
     []
   );
+
+  // Handle resume without message (continue dialog)
+  const handleResume = useCallback(() => {
+    const state = useChatStore.getState();
+    if (state.messages.length > 0 && state.activeModels.length > 0) {
+      const lastMessage = state.messages[state.messages.length - 1];
+      if (lastMessage && !lastMessage.isStreaming) {
+        processModelResponses(lastMessage);
+      }
+    }
+  }, [processModelResponses]);
 
   // Handle user message
   const handleSendMessage = useCallback(
@@ -278,8 +370,8 @@ export function ChatContainer() {
         <ChatInput
           onSend={handleSendMessage}
           onStop={handleStop}
+          onResume={handleResume}
           disabled={activeModels.length === 0}
-          isGenerating={isGenerating}
         />
       </div>
 
